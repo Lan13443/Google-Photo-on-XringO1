@@ -1,0 +1,7 @@
+// Xposed API stubs（仅编译期使用，运行时由 LSPosed 提供真实实现）
+apply plugin: 'java-library'
+
+tasks.withType(JavaCompile) {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
