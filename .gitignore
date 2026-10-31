@@ -1,0 +1,23 @@
+# 签名密钥 —— 绝对不要提交
+*.jks
+*.keystore
+release/keystore.properties
+
+# 构建产物
+*.apk
+*.apk.idsig
+build/
+.gradle/
+local.properties
+out/
+dex/
+linked.apk
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# 系统
+.DS_Store
+Thumbs.db
