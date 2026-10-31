@@ -103,3 +103,5 @@ Gradle 工程：
 
 - [LSPosed](https://github.com/LSPosed/LSPosed)
 - Material Design 3 设计规范
+- **WA2000** —— 开发、调试与文档
+- [DeepSeek](https://www.deepseek.com/) —— AI 辅助逆向分析、排障与开发
