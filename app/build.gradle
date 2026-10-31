@@ -1,0 +1,34 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.wa2000.photohdr'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.wa2000.photohdr"
+        minSdk 29
+        targetSdk 34
+        versionCode 20
+        versionName "2.0.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // 发布请换成自己的签名；不配置时回落到 debug 签名
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // Xposed API 仅编译期使用，运行时由 LSPosed 提供
+    compileOnly project(':stubs')
+}
