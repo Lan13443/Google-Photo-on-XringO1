@@ -8,63 +8,79 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.Properties;
 
-/**
- * File-based config store. Deliberately avoids SharedPreferences because on
- * HyperOS + LSPosed the SharedPreferences path resolution is hooked/redirected
- * and silently returns defaults. Plain file in filesDir is not affected.
- */
 public class ConfigStore {
     private static final String TAG = "PhotoHDRFix";
+    private static final String FILE_NAME = "photohdr_settings.txt";
 
     public static boolean en = true;
-    public static String fps = "60";
+    public static boolean fixDv = true;
+    public static boolean lowLat = true;
+    public static boolean lockFps = true;
+    public static String fps = "120";
     public static boolean vb = false;
-    public static String status = null;
+    public static String theme = "ocean";
+    public static String status = "";
     public static long statusTime = 0;
-    public static String theme = "monet"; // monet | baseline | blue | green | rose
 
-    private static File file;
+    private static File sFile;
 
-    public static synchronized void load(Context ctx) {
+    public static synchronized void load(Context context) {
+        if (context == null) return;
         try {
-            file = new File(ctx.getFilesDir(), "photohdr_settings.txt");
-            if (file.exists() && file.length() > 0) {
-                Properties p = new Properties();
-                FileInputStream in = new FileInputStream(file);
-                p.load(in);
-                in.close();
-                en = "true".equals(p.getProperty("en", "true"));
-                fps = p.getProperty("fps", "60");
-                vb = "true".equals(p.getProperty("vb", "false"));
-                theme = p.getProperty("theme", "monet");
-                status = p.getProperty("st", null);
-                String stt = p.getProperty("stt", "0");
-                try { statusTime = Long.parseLong(stt); } catch (Throwable ignored) { }
+            if (sFile == null) {
+                sFile = new File(context.getFilesDir(), FILE_NAME);
             }
-            Log.i(TAG, "cfg loaded from " + file + " en=" + en + " fps=" + fps + " vb=" + vb);
+            if (!sFile.exists() || sFile.length() <= 0) {
+                return;
+            }
+
+            Properties prop = new Properties();
+            try (FileInputStream fis = new FileInputStream(sFile)) {
+                prop.load(fis);
+            }
+
+            en = Boolean.parseBoolean(prop.getProperty("en", "true"));
+            fixDv = Boolean.parseBoolean(prop.getProperty("fix_dv", "true"));
+            lowLat = Boolean.parseBoolean(prop.getProperty("low_lat", "true"));
+            lockFps = Boolean.parseBoolean(prop.getProperty("lock_fps", "true"));
+            fps = prop.getProperty("fps", "120");
+            vb = Boolean.parseBoolean(prop.getProperty("vb", "false"));
+            theme = prop.getProperty("theme", "ocean");
+            status = prop.getProperty("st", "");
+            statusTime = Long.parseLong(prop.getProperty("stt", "0"));
+
+            Log.i(TAG, "Config loaded: en=" + en + ", fix_dv=" + fixDv + ", fps=" + fps);
         } catch (Throwable t) {
-            Log.w(TAG, "cfg load FAIL " + t);
+            Log.w(TAG, "Config load failed: " + t.getMessage());
         }
     }
 
-    public static synchronized void save(Context ctx) {
+    public static synchronized void save(Context context) {
+        if (context == null) return;
         try {
-            if (file == null) file = new File(ctx.getFilesDir(), "photohdr_settings.txt");
-            Properties p = new Properties();
-            p.setProperty("en", String.valueOf(en));
-            p.setProperty("fps", fps);
-            p.setProperty("vb", String.valueOf(vb));
-            p.setProperty("theme", theme == null ? "monet" : theme);
-            if (status != null) {
-                p.setProperty("st", status);
-                p.setProperty("stt", String.valueOf(statusTime));
+            if (sFile == null) {
+                sFile = new File(context.getFilesDir(), FILE_NAME);
             }
-            FileOutputStream out = new FileOutputStream(file);
-            p.store(out, "PhotoHDRFix");
-            out.close();
-            Log.i(TAG, "cfg saved to " + file);
+
+            Properties prop = new Properties();
+            prop.setProperty("en", String.valueOf(en));
+            prop.setProperty("fix_dv", String.valueOf(fixDv));
+            prop.setProperty("low_lat", String.valueOf(lowLat));
+            prop.setProperty("lock_fps", String.valueOf(lockFps));
+            prop.setProperty("fps", fps);
+            prop.setProperty("vb", String.valueOf(vb));
+            prop.setProperty("theme", theme != null ? theme : "ocean");
+            if (status != null) {
+                prop.setProperty("st", status);
+            }
+            prop.setProperty("stt", String.valueOf(statusTime));
+
+            try (FileOutputStream fos = new FileOutputStream(sFile)) {
+                prop.store(fos, "PhotoHDRFix Settings");
+            }
+            Log.i(TAG, "Config saved to " + sFile.getAbsolutePath());
         } catch (Throwable t) {
-            Log.w(TAG, "cfg save FAIL " + t);
+            Log.w(TAG, "Config save failed: " + t.getMessage());
         }
     }
 }
