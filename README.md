@@ -1,108 +1,98 @@
-# Google Photo on XringO1
+# PhotoHDRFix
 
-> 模块名：**PhotoHDRFix**（应用名 / 包名 `com.wa2000.photohdr`）
+解决玄戒 O1 平台（dijum / O1_asic）MIUI·澎湃相册在「缩略图滑动、截屏动画、屏幕录制」等场景瞬间偏黄的问题。
 
-面向 **玄戒 O1（Xring O1）** 机型的 Google 相册视频播放丢帧干预模块（LSPosed）。
-
-> ⚠️ **实验性项目**。请先读完「现状与局限」再决定是否安装。
+Xposed / LSPosed 模块，作用于 `com.google.android.apps.photos` 与 `com.miui.gallery`。
 
 ---
 
-## 背景
+## 背景：为什么会偏黄
 
-部分玄戒 O1 机型（如 Xiaomi 15S Pro / HyperOS 4 / Android 17）上，Google 相册播放高码率视频（例如 4K60 杜比视界）时会出现持续卡顿、周期性抽帧，而同一个文件用其他播放器（VLC、系统播放器等）播放是流畅的。
+用户相机拍摄的「杜比视界」视频，底层编码实际就是 HLG：
 
-基于 **Google 相册 7.97.0.1000520730** 的实测排查结论：
+- Profile 8.4，`transfer=arib-std-b67`（HLG），`color primaries=BT.2020`
+- 容器 brands 含 `dby1`，本质是「杜比视界」壳包着 HLG
 
-1. **解码器正常** —— `c2.xring.dolby.decoder` 工作正常，系统解码能力不缺；
-2. **相册自己的渲染调度器有严格的时钟校验** —— 每一帧的渲染时间戳会被播放时钟校验，晚于播放时钟约 **170~200ms** 的帧被判定为「过期」直接丢弃（`jfo.n` 返回 `r=2` 的丢弃路径，以及异步队列 `jeu.b` 的清空路径）；
-3. **温度限频是放大器** —— 播放后期 `mi_thermald` 触发功率预算，大核被限到 1.9GHz，帧迟到加剧，出现爆发式丢帧（实测 8 秒丢 1.4 万帧）；
-4. **定性** —— 相册的调度参数按渲染更快的平台校准，没有针对 O1 的渲染延迟特性留容差；限频放大了这个问题。
+玄戒 O1 平台在 HDR 图层合成阶段存在色彩管理缺陷：
 
-结论：**根因在相册的调度策略与系统调频，模块只能改写「丢帧决策」，改不了「帧迟到」本身。**
+1. SurfaceFlinger 把显示色域从 `SRGB(7)` 切到 `DISPLAY_P3(9)`；
+2. 但所有图层的 `colorTransform` 仍为单位矩阵，HLG 的 OOTF 未被正确处理；
+3. 结果 BT.2020 的数值被直接当作 P3 显示，中性色偏黄。
 
----
+因为偏色固化在**合成阶段**，所以连截图、录屏同样发黄——这不是硬件损坏，也不是用户设置，而是平台级色彩缺陷。
 
-## 功能
-
-- 拦截相册的丢帧决策（`jfo.n`），把「丢弃」改写为按相册自身时间戳渲染；
-- **SAFE-FIX 策略**：只抢救即将到期的帧（delta < 33ms），明显超前的帧保持丢弃，维持播放器自身的追帧机制，避免画面跳变；
-- 渲染节奏基准 60 / 30 fps 切换；
-- 详细日志开关（logcat tag：`PhotoHDRFix`）；
-- Material 3 设置界面：莫奈动态取色 + 四组静态主题（经典紫 / 海岸蓝 / 苔原绿 / 玫瑰粉），支持深色模式。
+触发条件实测收窄：正常单张照片/视频点开全屏查看**不黄**；只有系统相册缩略图滑动、截屏动画、屏幕录制三种场景发黄——即「屏上出现 HDR 图层的那一刻」才偏色。
 
 ---
 
-## 现状与局限（重要）
+## 方案：按 Surface 类型分流（方案 A）
 
-- **实验性**。在作者设备上，干预后卡顿有所减轻，但**未完全消除**；部分场景下干预效果趋近于零（无副作用）。
-- **模块不能解决根因**：帧迟到来自系统调度与温度限频，模块无法绕过 `mi_thermald` 的功率限制。
-- **已验证环境**：
-  - Xiaomi 15S Pro（dijum / Xring O1）
-  - HyperOS 4 / Android 17
-  - LSPosed 2.2.1 + KernelSU
-  - Google 相册 7.97.0.1000520730
-- 其他 O1 机型（平板等）**未验证**；非 O1 设备可安装但意义不大。
-- 相册版本更新后内部类名可能变化，hook 会失效（**不会导致崩溃，只是不生效**），需要适配。
+在 MediaCodec 层按 Surface 类型做分流，而不是去 hook 帧渲染节奏（早期版本做过，方向错了）：
+
+| 场景 | 判定 | 处理 |
+| --- | --- | --- |
+| 全屏播放 | Surface 子类（如 `jfd`） | 保留真 HDR：重写 mime 为 hevc，注入 `color-standard=6`(BT.2020) / `color-transfer=7`(HLG)，**不碰 csd-0** |
+| 缩略图 / 预览 | 原生 `android.view.Surface` | 压成 SDR：重写 hevc，注入 `color-standard=1`(BT.709) / `color-transfer=3`(SDR)，并 patch csd-0 到 SDR |
+
+另将 `createByCodecName` / `createDecoderByType` 的 `dolby` 解码器重定向到 `hevc`。
+
+> 说明：全屏保留 HDR 是为了不丢失高光与色彩层次；缩略图压 SDR 是因为小图本就不需要 HDR，且压 SDR 能绕开合成阶段的偏色。
+
+---
+
+## 功能闭环（用户实测）
+
+- ✅ 相册全屏 HDR 保真（不偏亮、保留高光）
+- ✅ 信息流缩略图不黄
+- ✅ 截屏图片数据回看时不黄
+- ⚠️ **截屏动画本身的瞬间偏色**为系统边界（图层由 SystemUI / system_server 截图控制器绘制），本模块不注入 system_server，故**保留不修**，属已知边界
+
+---
+
+## 红线（本模块绝不触碰）
+
+- 不碰 `system_server` / `zygisk_lsposed` / `sepolicy.rule`
+- 不碰 `/vendor`、系统分区、系统引导模块
+- 只在普通 App 进程内排查与 hook，零黑屏/零引导风险
 
 ---
 
 ## 安装
 
-**前置要求**：root（KernelSU / Magisk）+ LSPosed（Zygisk），Android 12+（minSdk 29）。
-
-1. 从 [Releases](../../releases) 下载 APK 并安装；
-2. 打开 LSPosed → 模块 → 启用 **PhotoHDRFix**；
-3. 作用域勾选 **Google 相册**（`com.google.android.apps.photos`）；
-4. 强制停止相册（或重启手机），再打开相册播放视频；
-5. 打开 PhotoHDRFix 应用查看注入状态。
-
-> 模块应用本身只是设置界面；真正的 hook 运行在 Google 相册进程内。
+1. 需要已 root（KernelSU / Magisk）+ LSPosed（Zygisk）环境；
+2. 安装本模块 APK 后在 LSPosed 中启用；
+3. 作用域勾选 **Google 相册**（`com.google.android.apps.photos`）与 **MIUI 相册**（`com.miui.gallery`）；
+4. 重启目标应用（或重启系统）生效。
 
 ---
 
-## 设置说明
+## 构建
 
-| 项目 | 说明 |
-|---|---|
-| 修复干预 | 总开关，关闭后行为等同未安装模块 |
-| 渲染节奏 | 帧间隔基准，默认 60 fps |
-| 详细日志 | 开启后向 logcat 输出决策日志，排查用 |
-| 配色主题 | 莫奈动态（跟随壁纸）/ 经典紫 / 海岸蓝 / 苔原绿 / 玫瑰粉 |
-
----
-
-## 从源码构建
-
-Gradle 工程：
+依赖 Android SDK（compileSdk 34 / buildTools）与 gradle，`app/build.gradle` 中 versionCode / versionName 与 Manifest 对齐。
 
 ```bash
-./gradlew assembleRelease
+# 在工程根目录执行
+./build.sh
 ```
 
-- 需要 JDK 17 + Android SDK 34；
-- Xposed API 通过本地 `:stubs` module 以 `compileOnly` 方式提供（仅编译期使用，运行时由 LSPosed 提供真实实现）；也可以替换为 `de.robv.android.xposed:api:82`（仓库 `https://api.xposed.info/`）；
-- 签名：`app/build.gradle` 默认回落到 debug 签名，正式发布请配置你自己的 keystore，**不要提交签名文件**（`.gitignore` 已排除 `*.jks` / `*.keystore`）。
+产物 APK 位于 `out/` 目录（已被 `.gitignore` 排除，不会入库）。
+
+---
+
+## 版本
+
+- **v2.3.0**（versionCode 23）—— 当前稳定版，方案 A 分流落地
+- v2.0.0 —— 早期「丢帧干预」方向（已废弃）
 
 ---
 
 ## 免责声明
 
-- 本项目会修改第三方应用（Google 相册）的运行行为，可能违反其服务条款，**仅供学习研究使用**；
-- root、刷机、Xposed/LSPosed 模块相关风险由使用者自行承担；
-- 本项目与 Google、小米、LSPosed 官方无关；
-- 仓库**不包含**任何 Google 相册的代码或资源，仅通过运行期 hook 引用其公开可见的类名 / 方法名。
+本模块仅供学习与研究色彩管理问题使用。刷入 Xposed 模块需自行承担风险，作者不对任何设备异常、数据丢失或系统损坏负责。
 
 ---
 
-## License
-
-[MIT](LICENSE)
-
 ## 致谢
 
-- [LSPosed](https://github.com/LSPosed/LSPosed)
-- Material Design 3 设计规范
-- **WA2000** —— 开发、调试与文档
-- [Operit AI](https://github.com/AAswordman/Operit) —— Android 端 AI Agent 运行环境
-- [DeepSeek](https://www.deepseek.com/) —— AI 辅助逆向分析、排障与开发
+- LSPosed / Xposed 框架
+- Operit AI、DeepSeek 等排障协作工具
