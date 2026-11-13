@@ -1,22 +1,22 @@
 package com.wa2000.photohdr;
 
+import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageInfo;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
-import android.graphics.Color;
-import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
-import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.RippleDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.Window;
 import android.view.WindowInsetsController;
 import android.view.animation.Interpolator;
 import android.view.animation.PathInterpolator;
@@ -28,44 +28,103 @@ import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
 
-import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.Locale;
-
 /**
- * PhotoHDRFix 设置界面。严格遵循 Material 3 设计规范：
- * 色彩角色严格配对、M3 easing 动画、12dp 卡片、ripple 按压反馈、
- * surfaceContainer 层级、M3 导航栏。
+ * PhotoHDRFix v2.3.0 - True Kyant0 / DouYinLiquidTab Optical Refraction Edition
+ *
+ * Key Upgrades matching Video 2 (DouYinLiquidTab / Kyant0 AndroidLiquidGlass):
+ * 1. Crystal-Clear Liquid Glass Dock (Zero muddy grey fill!):
+ *    - Ultra-clear transparent body (alpha = 20) with a crisp 1.4dp specular border rim.
+ *    - Floating cyan/accent-tinted active lens pill with a bright inner water-drop specular ring.
+ * 2. Real-Time Optical Refraction & Magnification Clone Layer:
+ *    - Inside the sliding active pill (`lensViewport`), a synchronized, 1.07x magnified & bright-lit
+ *      refraction layer counter-scrolls in real time as the pill moves or drags, creating genuine
+ *      water-drop lens refraction over the background content and tab icons!
+ * 3. Interactive Drag + Tap + Gel-Bulge Spring Physics:
+ *    - Supports both smooth finger dragging across the dock and direct tapping.
+ *    - On press/drag, the active water-drop pill expands (scaleX 1.12x, scaleY 1.08x) and brightens
+ *      its specular rim, then settles with Kyant0's underdamped spring curve.
+ * 4. Rich Deep-Space / Ocean Atmospheric Gradient Background + Crisp 1dp Glass Cards:
+ *    - Eliminates flat dull black; uses a deep atmospheric gradient backdrop and translucent
+ *      1dp-bordered glass cards so background colors refract vividly through the bottom dock.
  */
 public class SettingsActivity extends Activity {
 
-    // ============ M3 motion ============
     private static final Interpolator I_EMPHASIZED = new PathInterpolator(0.2f, 0f, 0f, 1f);
-    private static final Interpolator I_DECEL = new PathInterpolator(0.05f, 0.7f, 0.1f, 1f);
-    private static final Interpolator I_ACCEL = new PathInterpolator(0.3f, 0f, 0.8f, 0.15f);
+    private static final Interpolator I_LIQUID_SPRING = new PathInterpolator(0.16f, 0.92f, 0.28f, 1.16f);
 
-    // ============ palette (M3 color roles) ============
-    private int C_PRIMARY, C_ON_PRIMARY, C_PRIMARY_CONTAINER, C_ON_PRIMARY_CONTAINER;
-    private int C_SECONDARY_CONTAINER, C_ON_SECONDARY_CONTAINER;
-    private int C_TERTIARY_CONTAINER, C_ON_TERTIARY_CONTAINER;
-    private int C_SURFACE, C_SURFACE_LOW, C_SURFACE_CONTAINER, C_SURFACE_HIGH, C_SURFACE_HIGHEST;
-    private int C_ON_SURFACE, C_ON_SURFACE_VARIANT, C_OUTLINE, C_ERROR;
-    private int C_RIPPLE;
+    // Dynamic Palette Tokens
+    private int C_BG_TOP;
+    private int C_BG_BOTTOM;
+    private int C_CARD_FILL;
+    private int C_CARD_BORDER;
+    private int C_SURFACE_HIGH;
+    private int C_PRIMARY;
+    private int C_ON_PRIMARY;
+    private int C_PRIMARY_CONTAINER;
+    private int C_ON_PRIMARY_CONTAINER;
+    private int C_SECONDARY_CONTAINER;
+    private int C_ON_SECONDARY_CONTAINER;
+    private int C_ON_SURFACE;
+    private int C_ON_SURFACE_VARIANT;
+
+    // Liquid Glass Optical Tokens
+    private int C_DOCK_GLASS_FILL;
+    private int C_DOCK_GLASS_RIM;
+    private int C_PILL_LENS_FILL;
+    private int C_PILL_LENS_RIM;
+    private int C_PILL_GLOW;
+
     private boolean night;
+    private int curPage = 0;
 
-    // ============ views ============
     private FrameLayout content;
-    private ScrollView homePage, settingsPage;
-    private TextView bigTitle, bigSub, bigMeta;
-    private View dot;
-    private View dockPill;
-    private TextView icHome, icSettings, lblHome, lblSettings;
-    private TextView themeNameTxt;
-    private TextView verPhotos;
+    private ScrollView homePage;
+    private ScrollView settingsPage;
 
-    // ============ lifecycle ============
+    // Hero Banner Elements
+    private LinearLayout heroCard;
+    private TextView heroTitle;
+    private TextView heroSub;
+    private TextView heroModeTag;
+    private TextView heroBadge;
+
+    // True Kyant0 Liquid Glass Dock + Lens Refraction Viewport
+    private FrameLayout dockBar;
+    private FrameLayout dockPill;
+    private LinearLayout refractedTabsRow; // Magnified inner lens layer for real optical refraction!
+    private TextView icHome;
+    private TextView icSettings;
+    private TextView icAbout;
+    private TextView lblHome;
+    private TextView lblSettings;
+    private TextView lblAbout;
+    private ScrollView aboutPage;
+
+    // Exact Geometry for 3-Tab Dock (Home / Settings / About - matching Video 2!)
+    private int dockOuterWidth;
+    private int dockInnerPad;
+    private int tabSlotWidth;
+    private float currentPillX = 0f;
+
+    private final BroadcastReceiver statusReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String st = intent.getStringExtra("st");
+            if (st != null) {
+                ConfigStore.status = st;
+                ConfigStore.statusTime = System.currentTimeMillis();
+                ConfigStore.save(SettingsActivity.this);
+                refreshStatus();
+            }
+        }
+    };
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        try {
+            requestWindowFeature(1); // Hide duplicate system ActionBar
+        } catch (Throwable ignored) {}
+
         super.onCreate(savedInstanceState);
         ConfigStore.load(this);
         loadTheme();
@@ -73,749 +132,925 @@ public class SettingsActivity extends Activity {
         setContentView(content);
         applySystemBars();
         showPage(0, false);
-        try {
-            registerSafe(statusReceiver, new IntentFilter("com.wa2000.photohdr.STATUS"));
-        } catch (Throwable ignored) {
-        }
+
+        IntentFilter filter = new IntentFilter("com.wa2000.photohdr.STATUS");
+        registerSafe(statusReceiver, filter);
         broadcastSettings();
-        refreshStatus(false);
+        refreshStatus();
     }
 
     @Override
     protected void onDestroy() {
+        super.onDestroy();
         try {
             unregisterReceiver(statusReceiver);
-        } catch (Throwable ignored) {
-        }
-        super.onDestroy();
+        } catch (Throwable ignored) {}
     }
 
     private void registerSafe(BroadcastReceiver r, IntentFilter f) {
         try {
-            java.lang.reflect.Method m = Context.class.getMethod("registerReceiver",
-                    BroadcastReceiver.class, IntentFilter.class, int.class);
-            m.invoke(this, r, f, 0x2);
-        } catch (Throwable t) {
+            if (Build.VERSION.SDK_INT >= 33) {
+                Class<?> ctxCls = Context.class;
+                java.lang.reflect.Method m = ctxCls.getMethod("registerReceiver", BroadcastReceiver.class, IntentFilter.class, Integer.TYPE);
+                m.invoke(this, r, f, Integer.valueOf(2));
+                return;
+            }
+        } catch (Throwable ignored) {}
+        try {
             registerReceiver(r, f);
-        }
-    }
-
-    private final BroadcastReceiver statusReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context c, Intent i) {
-            String st = i.getStringExtra("st");
-            if (st != null) {
-                ConfigStore.status = st;
-                ConfigStore.statusTime = System.currentTimeMillis();
-                ConfigStore.save(c);
-                refreshStatus(true);
-            }
-        }
-    };
-
-    private void applySystemBars() {
-        // 窗口背景与页面背景统一为 surface 色，消除状态栏区域的白边
-        getWindow().setBackgroundDrawable(new ColorDrawable(C_SURFACE));
-        getWindow().getDecorView().setBackgroundColor(C_SURFACE);
-        getWindow().setStatusBarColor(C_SURFACE);
-        getWindow().setNavigationBarColor(C_SURFACE_CONTAINER);
-        if (Build.VERSION.SDK_INT >= 30) {
-            WindowInsetsController c = getWindow().getInsetsController();
-            if (c != null) {
-                int flag = night ? 0 : WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS;
-                c.setSystemBarsAppearance(flag, WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS);
-            }
-        }
-    }
-
-    // ============ theme ============
-    private void loadTheme() {
-        night = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
-                == Configuration.UI_MODE_NIGHT_YES;
-        String t = ConfigStore.theme == null ? "monet" : ConfigStore.theme;
-        boolean monet = "monet".equals(t);
-
-        // 中性色（所有主题共享 M3 baseline neutrals）
-        if (night) {
-            C_SURFACE = 0xFF141218;
-            C_SURFACE_LOW = 0xFF1D1B20;
-            C_SURFACE_CONTAINER = 0xFF211F26;
-            C_SURFACE_HIGH = 0xFF2B2930;
-            C_SURFACE_HIGHEST = 0xFF36343B;
-            C_ON_SURFACE = 0xFFE6E0E9;
-            C_ON_SURFACE_VARIANT = 0xFFCAC4D0;
-            C_OUTLINE = 0xFF938F99;
-            C_ERROR = 0xFFF2B8B5;
-            C_RIPPLE = 0x1FFFFFFF;
-        } else {
-            C_SURFACE = 0xFFFEF7FF;
-            C_SURFACE_LOW = 0xFFF7F2FA;
-            C_SURFACE_CONTAINER = 0xFFF3EDF7;
-            C_SURFACE_HIGH = 0xFFECE6F0;
-            C_SURFACE_HIGHEST = 0xFFE6E0E9;
-            C_ON_SURFACE = 0xFF1D1B20;
-            C_ON_SURFACE_VARIANT = 0xFF49454F;
-            C_OUTLINE = 0xFF79747E;
-            C_ERROR = 0xFFB3261E;
-            C_RIPPLE = 0x14000000;
-        }
-
-        if (monet && Build.VERSION.SDK_INT >= 31) {
-            // 动态取色：accent1/2/3 = primary/secondary/tertiary
-            C_PRIMARY = c(night ? android.R.color.system_accent1_200 : android.R.color.system_accent1_600,
-                    night ? 0xFFD0BCFF : 0xFF6750A4);
-            C_ON_PRIMARY = night ? 0xFF381E72 : 0xFFFFFFFF;
-            C_PRIMARY_CONTAINER = c(night ? android.R.color.system_accent1_700 : android.R.color.system_accent1_100,
-                    night ? 0xFF4F378B : 0xFFEADDFF);
-            C_ON_PRIMARY_CONTAINER = c(night ? android.R.color.system_accent1_100 : android.R.color.system_accent1_900,
-                    night ? 0xFFEADDFF : 0xFF21005D);
-            C_SECONDARY_CONTAINER = c(night ? android.R.color.system_accent2_700 : android.R.color.system_accent2_200,
-                    night ? 0xFF4A4458 : 0xFFE8DEF8);
-            C_ON_SECONDARY_CONTAINER = c(night ? android.R.color.system_accent2_100 : android.R.color.system_accent2_900,
-                    night ? 0xFFE8DEF8 : 0xFF1D192B);
-            C_TERTIARY_CONTAINER = c(night ? android.R.color.system_accent3_700 : android.R.color.system_accent3_200,
-                    night ? 0xFF633B48 : 0xFFFFD8E4);
-            C_ON_TERTIARY_CONTAINER = c(night ? android.R.color.system_accent3_100 : android.R.color.system_accent3_900,
-                    night ? 0xFFFFD8E4 : 0xFF31111D);
-        } else {
-            int p, op, pc, opc, sc, osc, tc, otc;
-            if ("blue".equals(t)) {
-                if (night) {
-                    p = 0xFFACC7FF; op = 0xFF0A2D6C; pc = 0xFF274273; opc = 0xFFDCE3FF;
-                    sc = 0xFF424657; osc = 0xFFDDE1F9; tc = 0xFF573E52; otc = 0xFFFFD7F0;
-                } else {
-                    p = 0xFF3B5BA9; op = 0xFFFFFFFF; pc = 0xFFDCE3FF; opc = 0xFF00174B;
-                    sc = 0xFFDDE1F9; osc = 0xFF161B2C; tc = 0xFFFFD7F0; otc = 0xFF2B1230;
-                }
-            } else if ("green".equals(t)) {
-                if (night) {
-                    p = 0xFF9CD67D; op = 0xFF113800; pc = 0xFF21500C; opc = 0xFFB9F193;
-                    sc = 0xFF3F4A36; osc = 0xFFD8E7CB; tc = 0xFF1E4D50; otc = 0xFFBCEBEE;
-                } else {
-                    p = 0xFF386A20; op = 0xFFFFFFFF; pc = 0xFFB9F193; opc = 0xFF0B2000;
-                    sc = 0xFFD8E7CB; osc = 0xFF131F0D; tc = 0xFFBCEBEE; otc = 0xFF002021;
-                }
-            } else if ("rose".equals(t)) {
-                if (night) {
-                    p = 0xFFFFB1C8; op = 0xFF5F1134; pc = 0xFF633B48; opc = 0xFFFFD9E2;
-                    sc = 0xFF5B3F46; osc = 0xFFFFD9E2; tc = 0xFF613F1F; otc = 0xFFFFDCC1;
-                } else {
-                    p = 0xFF9C254D; op = 0xFFFFFFFF; pc = 0xFFFFD9E2; opc = 0xFF3E001D;
-                    sc = 0xFFF6DDE2; osc = 0xFF2B151C; tc = 0xFFFFDCC1; otc = 0xFF2E1500;
-                }
-            } else { // baseline（官方全套）
-                if (night) {
-                    p = 0xFFD0BCFF; op = 0xFF381E72; pc = 0xFF4F378B; opc = 0xFFEADDFF;
-                    sc = 0xFF4A4458; osc = 0xFFE8DEF8; tc = 0xFF633B48; otc = 0xFFFFD8E4;
-                } else {
-                    p = 0xFF6750A4; op = 0xFFFFFFFF; pc = 0xFFEADDFF; opc = 0xFF21005D;
-                    sc = 0xFFE8DEF8; osc = 0xFF1D192B; tc = 0xFFFFD8E4; otc = 0xFF31111D;
-                }
-            }
-            C_PRIMARY = p;
-            C_ON_PRIMARY = op;
-            C_PRIMARY_CONTAINER = pc;
-            C_ON_PRIMARY_CONTAINER = opc;
-            C_SECONDARY_CONTAINER = sc;
-            C_ON_SECONDARY_CONTAINER = osc;
-            C_TERTIARY_CONTAINER = tc;
-            C_ON_TERTIARY_CONTAINER = otc;
-        }
+        } catch (Throwable ignored) {}
     }
 
     private int c(int resId, int fallback) {
         try {
-            int v = getColor(resId);
-            return v == 0 ? fallback : v;
-        } catch (Throwable t) {
-            return fallback;
+            int val = getColor(resId);
+            if (val != 0) return val;
+        } catch (Throwable ignored) {}
+        return fallback;
+    }
+
+    /**
+     * Resolves Deep-Space / Ocean Atmospheric Backdrop + Monet & Crystal Glass Tokens
+     */
+    private void loadTheme() {
+        int uiMode = getResources().getConfiguration().uiMode & 48;
+        night = (uiMode == 32);
+
+        String theme = ConfigStore.theme != null ? ConfigStore.theme : "ocean";
+
+        if ("monet".equals(theme) && Build.VERSION.SDK_INT >= 31) {
+            C_PRIMARY = c(night ? 17170491 : 17170495, night ? 0xFF78C5FF : 0xFF006493);
+            C_ON_PRIMARY = night ? 0xFF003351 : 0xFFFFFFFF;
+            C_PRIMARY_CONTAINER = c(night ? 17170496 : 17170490, night ? 0xFF1A4975 : 0xFFCBE6FF);
+            C_ON_PRIMARY_CONTAINER = c(night ? 17170490 : 17170498, night ? 0xFFD8ECFF : 0xFF001E30);
+            C_SECONDARY_CONTAINER = c(night ? 17170509 : 17170504, night ? 0xFF284B6A : 0xFFD3E5F5);
+            C_ON_SECONDARY_CONTAINER = c(night ? 17170503 : 17170511, night ? 0xFFD3E5F5 : 0xFF0C1D29);
+        } else if ("purple".equals(theme)) {
+            // KernelSU Berry Purple
+            C_PRIMARY = night ? 0xFFEAB5ED : 0xFF7B4E7F;
+            C_ON_PRIMARY = night ? 0xFF48204C : 0xFFFFFFFF;
+            C_PRIMARY_CONTAINER = night ? 0xFF4C3654 : 0xFFFAD7FF;
+            C_ON_PRIMARY_CONTAINER = night ? 0xFFFCE2FF : 0xFF310937;
+            C_SECONDARY_CONTAINER = night ? 0xFFE5B8C8 : 0xFFFFD8E6;
+            C_ON_SECONDARY_CONTAINER = night ? 0xFF3E1C29 : 0xFF3B071D;
+        } else if ("moss".equals(theme)) {
+            C_PRIMARY = night ? 0xFF7CE89A : 0xFF236C3A;
+            C_ON_PRIMARY = night ? 0xFF003919 : 0xFFFFFFFF;
+            C_PRIMARY_CONTAINER = night ? 0xFF174E2C : 0xFFB4F6C4;
+            C_ON_PRIMARY_CONTAINER = night ? 0xFFD2FFE0 : 0xFF00210C;
+            C_SECONDARY_CONTAINER = night ? 0xFF264E36 : 0xFFD4E8D9;
+            C_ON_SECONDARY_CONTAINER = night ? 0xFFD4E8D9 : 0xFF0F1F15;
+        } else if ("rose".equals(theme)) {
+            C_PRIMARY = night ? 0xFFFFB1C8 : 0xFF984061;
+            C_ON_PRIMARY = night ? 0xFF5E1133 : 0xFFFFFFFF;
+            C_PRIMARY_CONTAINER = night ? 0xFF5A253A : 0xFFFFD9E2;
+            C_ON_PRIMARY_CONTAINER = night ? 0xFFFFD9E2 : 0xFF3E001D;
+            C_SECONDARY_CONTAINER = night ? 0xFF6B3248 : 0xFFFFD9E2;
+            C_ON_SECONDARY_CONTAINER = night ? 0xFFFFD9E2 : 0xFF2B151C;
+        } else {
+            // Video 2 Signature "LiquidTab Deep Sapphire & Cyan" Palette
+            C_PRIMARY = night ? 0xFF47B8FF : 0xFF006493;
+            C_ON_PRIMARY = night ? 0xFF00304D : 0xFFFFFFFF;
+            C_PRIMARY_CONTAINER = night ? 0xFF164370 : 0xFFCBE6FF;
+            C_ON_PRIMARY_CONTAINER = night ? 0xFFE3F3FF : 0xFF001E30;
+            C_SECONDARY_CONTAINER = night ? 0xFF1F6E58 : 0xFFC8F5E4;
+            C_ON_SECONDARY_CONTAINER = night ? 0xFF8FF7D4 : 0xFF002117;
+        }
+
+        if (night) {
+            // Atmospheric Deep Gradient Backdrop (Video 2 style)
+            C_BG_TOP = blend(0xFF0B131E, C_PRIMARY_CONTAINER, 0.25f);
+            C_BG_BOTTOM = blend(0xFF121D2E, C_PRIMARY_CONTAINER, 0.42f);
+            // Translucent Glass Cards with crisp 1dp border
+            C_CARD_FILL = alpha(blend(0xFF182436, C_PRIMARY_CONTAINER, 0.28f), 175);
+            C_CARD_BORDER = alpha(0xFFFFFFFF, 34);
+            C_SURFACE_HIGH = alpha(blend(0xFF22324A, C_PRIMARY_CONTAINER, 0.35f), 205);
+            C_ON_SURFACE = 0xFFF2F6FC;
+            C_ON_SURFACE_VARIANT = 0xFFAAB8CC;
+
+            // Crystal-Clear Liquid Glass Dock (Zero muddy grey!)
+            C_DOCK_GLASS_FILL = alpha(blend(0xFF0E1A2B, C_PRIMARY_CONTAINER, 0.22f), 115);
+            C_DOCK_GLASS_RIM = alpha(0xFFFFFFFF, 76);
+
+            // Water-Drop Active Lens Pill (Crisp cyan/primary refraction ring)
+            C_PILL_LENS_FILL = alpha(blend(C_PRIMARY, 0xFFFFFFFF, 0.15f), 58);
+            C_PILL_LENS_RIM = alpha(blend(C_PRIMARY, 0xFFFFFFFF, 0.65f), 175);
+            C_PILL_GLOW = alpha(C_PRIMARY, 95);
+        } else {
+            C_BG_TOP = blend(0xFFF2F7FC, C_PRIMARY_CONTAINER, 0.25f);
+            C_BG_BOTTOM = blend(0xFFE4EFFA, C_PRIMARY_CONTAINER, 0.45f);
+            C_CARD_FILL = alpha(0xFFFFFFFF, 200);
+            C_CARD_BORDER = alpha(C_PRIMARY, 38);
+            C_SURFACE_HIGH = alpha(blend(0xFFEAF2FA, C_PRIMARY_CONTAINER, 0.40f), 220);
+            C_ON_SURFACE = 0xFF101A26;
+            C_ON_SURFACE_VARIANT = 0xFF4E5E72;
+
+            C_DOCK_GLASS_FILL = alpha(0xFFFFFFFF, 145);
+            C_DOCK_GLASS_RIM = alpha(0xFFFFFFFF, 210);
+
+            C_PILL_LENS_FILL = alpha(C_PRIMARY, 45);
+            C_PILL_LENS_RIM = alpha(C_PRIMARY, 145);
+            C_PILL_GLOW = alpha(C_PRIMARY, 70);
         }
     }
 
-    // ============ ui ============
-    private void buildUi() {
-        FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(C_SURFACE);
+    private void applySystemBars() {
+        try {
+            Window w = getWindow();
+            GradientDrawable bgGrad = new GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    new int[]{C_BG_TOP, C_BG_BOTTOM});
+            w.setBackgroundDrawable(bgGrad);
+            w.setStatusBarColor(0x00000000);
+            w.setNavigationBarColor(0x00000000);
+            if (Build.VERSION.SDK_INT >= 30) {
+                WindowInsetsController ic = w.getInsetsController();
+                if (ic != null) {
+                    int app = night ? 0 : 24;
+                    ic.setSystemBarsAppearance(app, 24);
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
 
+    /**
+     * Builds Crystal-Clear Outer Dock Shell (Matches Video 2: transparent glass + crisp white specular rim)
+     */
+    private GradientDrawable createCrystalDockShellDrawable(float radiusPx) {
+        GradientDrawable gd = new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{
+                        alpha(blend(C_DOCK_GLASS_FILL, 0xFFFFFFFF, 0.12f), night ? 110 : 155),
+                        C_DOCK_GLASS_FILL
+                });
+        gd.setCornerRadius(radiusPx);
+        gd.setStroke(dp(1.2f), C_DOCK_GLASS_RIM);
+        return gd;
+    }
+
+    /**
+     * Builds Water-Drop Lens Pill Drawable (Matches Video 2: bright refractive rim + crystal inner lens)
+     */
+    private GradientDrawable createWaterDropLensDrawable(float radiusPx, boolean pressed) {
+        int fillTop = alpha(blend(C_PRIMARY, 0xFFFFFFFF, 0.38f), pressed ? 92 : 64);
+        int fillBot = alpha(C_PRIMARY, pressed ? 68 : 42);
+        GradientDrawable gd = new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{fillTop, fillBot});
+        gd.setCornerRadius(radiusPx);
+        gd.setStroke(dp(pressed ? 1.8f : 1.4f), pressed ? alpha(0xFFFFFFFF, 220) : C_PILL_LENS_RIM);
+        return gd;
+    }
+
+    private void buildUi() {
         content = new FrameLayout(this);
-        root.addView(content, new FrameLayout.LayoutParams(-1, -1));
+        GradientDrawable bgGrad = new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{C_BG_TOP, C_BG_BOTTOM});
+        content.setBackground(bgGrad);
 
         homePage = buildHomePage();
         settingsPage = buildSettingsPage();
+        aboutPage = buildAboutPage();
+        settingsPage.setVisibility(View.GONE);
+        aboutPage.setVisibility(View.GONE);
+
         content.addView(homePage, new FrameLayout.LayoutParams(-1, -1));
         content.addView(settingsPage, new FrameLayout.LayoutParams(-1, -1));
-        settingsPage.setVisibility(View.GONE);
+        content.addView(aboutPage, new FrameLayout.LayoutParams(-1, -1));
 
-        root.addView(buildNavBar(), new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
-        this.content = root;
+        // Floating Crystal Liquid Glass Bottom Bar (Video 2 3-Tab Layout)
+        dockBar = buildNavBar();
+        FrameLayout.LayoutParams dockLp = new FrameLayout.LayoutParams(
+                dockOuterWidth, dp(68f), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        dockLp.bottomMargin = dp(20f);
+        content.addView(dockBar, dockLp);
     }
 
-    // ---- home page ----
+    /**
+     * Page 1: Dashboard (Matches Video 2 Clean Centered Header + Glass Status Cards + Numbered Guide)
+     */
     private ScrollView buildHomePage() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        int pad = dp(16);
-        root.setPadding(pad, dp(24), pad, dp(96));
-        scroll.addView(root, new ScrollView.LayoutParams(-1, -1));
+        ScrollView sv = new ScrollView(this);
+        sv.setFillViewport(true);
 
-        // 大状态卡：filled card（surfaceContainerHighest）
-        LinearLayout big = m3Card(C_SURFACE_HIGHEST, false, true);
-        big.setGravity(Gravity.CENTER_HORIZONTAL);
-        big.setPadding(dp(24), dp(32), dp(24), dp(32));
-        dot = new View(this);
-        dot.setBackground(rounded(C_ON_SURFACE_VARIANT, dp(6)));
-        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(dp(12), dp(12));
-        dlp.bottomMargin = dp(16);
-        big.addView(dot, dlp);
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(18f), dp(22f), dp(18f), dp(115f));
 
-        bigTitle = new TextView(this);
-        bigTitle.setTextSize(22);
-        bigTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        bigTitle.setTextColor(C_ON_SURFACE);
-        bigTitle.setGravity(Gravity.CENTER);
-        big.addView(bigTitle);
+        // 1. Centered Clean Top Title (Matches Video 2 "主页")
+        TextView topTitle = label("主页", 20f, C_ON_SURFACE, true);
+        topTitle.setGravity(Gravity.CENTER);
+        topTitle.setPadding(0, dp(6f), 0, dp(18f));
+        col.addView(topTitle, new LinearLayout.LayoutParams(-1, -2));
 
-        bigSub = new TextView(this);
-        bigSub.setTextSize(14);
-        bigSub.setTextColor(C_ON_SURFACE_VARIANT);
-        bigSub.setGravity(Gravity.CENTER);
-        bigSub.setLineSpacing(0, 1.3f);
-        bigSub.setPadding(dp(8), dp(8), dp(8), dp(8));
-        big.addView(bigSub);
+        // 2. Hero Activation Status Card (Matches Video 2 Blue Check Circle + Device Info)
+        heroCard = glassCard();
+        heroCard.setOrientation(LinearLayout.HORIZONTAL);
+        heroCard.setGravity(Gravity.CENTER_VERTICAL);
+        heroCard.setPadding(dp(18f), dp(18f), dp(18f), dp(18f));
 
-        bigMeta = new TextView(this);
-        bigMeta.setTextSize(12);
-        bigMeta.setTextColor(C_ON_SURFACE_VARIANT);
-        bigMeta.setGravity(Gravity.CENTER);
-        bigMeta.setPadding(0, dp(12), 0, 0);
-        big.addView(bigMeta);
+        TextView checkCircle = label("✓", 20f, 0xFFFFFFFF, true);
+        checkCircle.setGravity(Gravity.CENTER);
+        checkCircle.setBackground(rounded(C_PRIMARY, dp(22f)));
+        heroCard.addView(checkCircle, new LinearLayout.LayoutParams(dp(44f), dp(44f)));
 
-        big.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { sendRefresh(); }
+        LinearLayout heroTextCol = new LinearLayout(this);
+        heroTextCol.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams htLp = new LinearLayout.LayoutParams(0, -2, 1f);
+        htLp.leftMargin = dp(16f);
+
+        heroTitle = label("模块已激活", 18f, C_ON_SURFACE, true);
+        heroTextCol.addView(heroTitle);
+
+        heroSub = label("Xiaomi · " + Build.MODEL + " · 安卓 " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")",
+                13f, C_ON_SURFACE_VARIANT, false);
+        heroSub.setPadding(0, dp(3f), 0, 0);
+        heroTextCol.addView(heroSub);
+
+        heroCard.addView(heroTextCol, htLp);
+        heroCard.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                ConfigStore.en = !ConfigStore.en;
+                ConfigStore.save(SettingsActivity.this);
+                broadcastSettings();
+                refreshStatus();
+            }
         });
-        root.addView(big);
+        col.addView(heroCard);
+        col.addView(gap(12));
 
-        root.addView(gap(dp(8)));
+        // 3. Target Host App Match Card (Matches Video 2 "抖音 v41.0.0 已适配" Card)
+        LinearLayout hostCard = glassCard();
+        hostCard.setOrientation(LinearLayout.HORIZONTAL);
+        hostCard.setGravity(Gravity.CENTER_VERTICAL);
+        hostCard.setPadding(dp(18f), dp(16f), dp(18f), dp(16f));
 
-        // 版本卡：outlined card（surface + outline）
-        LinearLayout verCard = m3Card(0, true, false);
-        verCard.setPadding(dp(16), dp(16), dp(16), dp(16));
-        verCard.addView(label("Google 相册"));
-        verPhotos = new TextView(this);
-        verPhotos.setTextSize(14);
-        verPhotos.setTextColor(C_ON_SURFACE);
-        verPhotos.setTypeface(Typeface.DEFAULT_BOLD);
-        verCard.addView(verPhotos, new LinearLayout.LayoutParams(-1, -2));
-        verCard.addView(gap(dp(12)));
-        verCard.addView(label("模块版本"));
-        TextView verModule = new TextView(this);
-        verModule.setTextSize(14);
-        verModule.setTextColor(C_ON_SURFACE);
-        verModule.setTypeface(Typeface.DEFAULT_BOLD);
-        verModule.setText("2.0.0 · build 20");
-        verCard.addView(verModule, new LinearLayout.LayoutParams(-1, -2));
-        root.addView(verCard);
+        LinearLayout hostLeft = new LinearLayout(this);
+        hostLeft.setOrientation(LinearLayout.VERTICAL);
+        hostLeft.addView(label("Google 相册", 16.5f, C_ON_SURFACE, true));
+        TextView hostVerTv = label("v" + getPhotosVer() + " · 杜比视界 Profile 8.4 硬解直通", 12.5f, C_ON_SURFACE_VARIANT, false);
+        hostVerTv.setPadding(0, dp(3f), 0, 0);
+        hostLeft.addView(hostVerTv);
+        hostCard.addView(hostLeft, new LinearLayout.LayoutParams(0, -2, 1f));
 
-        root.addView(gap(dp(8)));
+        LinearLayout hostRight = new LinearLayout(this);
+        hostRight.setOrientation(LinearLayout.VERTICAL);
+        hostRight.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        hostModeTag = label("c2.xring.hevc", 15f, C_ON_SURFACE, true);
+        hostRight.addView(hostModeTag);
 
-        root.addView(gap(dp(4)));
+        heroBadge = label("已适配", 11f, C_ON_SECONDARY_CONTAINER, true);
+        heroBadge.setPadding(dp(8f), dp(2f), dp(8f), dp(2f));
+        heroBadge.setBackground(roundedStroke(C_SECONDARY_CONTAINER, C_PRIMARY, dp(6f), dp(1f)));
+        LinearLayout.LayoutParams hbLp = new LinearLayout.LayoutParams(-2, -2);
+        hbLp.topMargin = dp(4f);
+        hostRight.addView(heroBadge, hbLp);
+        hostCard.addView(hostRight);
 
-        // 刷新状态：小型文字选项条（text button 风格）
-        LinearLayout ref = new LinearLayout(this);
-        ref.setOrientation(LinearLayout.HORIZONTAL);
-        ref.setGravity(Gravity.CENTER);
-        ref.setPadding(dp(12), dp(10), dp(12), dp(10));
-        ref.setBackground(new RippleDrawable(ColorStateList.valueOf(C_RIPPLE), null, null));
-        TextView t1 = new TextView(this);
-        t1.setText("刷新状态");
-        t1.setTextSize(14);
-        t1.setTextColor(C_PRIMARY);
-        t1.setTypeface(Typeface.DEFAULT_BOLD);
-        t1.setGravity(Gravity.CENTER);
-        ref.addView(t1);
-        ref.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { sendRefresh(); }
-        });
-        root.addView(ref);
+        col.addView(hostCard);
+        col.addView(gap(18));
 
-        return scroll;
+        // 4. Section Header: 总开关控制
+        TextView secCtrl = label("总开关控制", 13.5f, C_ON_SURFACE_VARIANT, true);
+        secCtrl.setPadding(dp(4f), 0, dp(4f), dp(8f));
+        col.addView(secCtrl);
+
+        // Quick Toggles (Video 2 Individual Glass Row Cards)
+        col.addView(standaloneSwitchCard("杜比视界硬解直通", "将崩溃的 dolby.decoder 重定向至 10-bit HEVC", ConfigStore.fixDv, new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton b, boolean v) {
+                ConfigStore.fixDv = v;
+                ConfigStore.save(SettingsActivity.this);
+                broadcastSettings();
+            }
+        }));
+        col.addView(gap(10));
+
+        col.addView(standaloneSwitchCard("前台 120Hz 高刷锁定", "消除 LTPO 动态切档引起的 VSync 节拍错位", ConfigStore.lockFps, new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton b, boolean v) {
+                ConfigStore.lockFps = v;
+                ConfigStore.save(SettingsActivity.this);
+                broadcastSettings();
+            }
+        }));
+        col.addView(gap(10));
+
+        col.addView(standaloneSwitchCard("BT.2020 HLG 广色域保留", "保留 10-bit HDR 高动态范围色彩映射与高光细节", ConfigStore.lowLat, new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton b, boolean v) {
+                ConfigStore.lowLat = v;
+                ConfigStore.save(SettingsActivity.this);
+                broadcastSettings();
+            }
+        }));
+        col.addView(gap(18));
+
+        // 5. Section Header: 使用指南 (Video 2 Numbered Guide Cards so scrolling under dock shows real refraction!)
+        TextView secGuide = label("使用指南", 13.5f, C_ON_SURFACE_VARIANT, true);
+        secGuide.setPadding(dp(4f), 0, dp(4f), dp(8f));
+        col.addView(secGuide);
+
+        col.addView(numberedGuideCard("1", "在 LSPosed 中启用本模块，并勾选作用域 Google 相册"));
+        col.addView(gap(10));
+        col.addView(numberedGuideCard("2", "模块自动将杜比视界流重定向至玄戒 O1 原生 HEVC 硬解管线"));
+        col.addView(gap(10));
+        col.addView(numberedGuideCard("3", "切换开关或帧率档位后实时广播生效，直接播放视频即可丝滑呈现"));
+
+        sv.addView(col);
+        return sv;
     }
 
-    private TextView label(String s) {
-        TextView t = new TextView(this);
-        t.setText(s);
-        t.setTextSize(12);
-        t.setTextColor(C_ON_SURFACE_VARIANT);
-        return t;
-    }
+    private TextView hostModeTag;
 
-    // ---- settings page ----
+    /**
+     * Page 2: Advanced Settings & Monet Theme Palette
+     */
     private ScrollView buildSettingsPage() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        int pad = dp(16);
-        root.setPadding(pad, dp(24), pad, dp(96));
-        scroll.addView(root, new ScrollView.LayoutParams(-1, -1));
+        ScrollView sv = new ScrollView(this);
+        sv.setFillViewport(true);
 
-        TextView title = new TextView(this);
-        title.setText("设置");
-        title.setTextSize(24);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(C_ON_SURFACE);
-        root.addView(title);
-        root.addView(gap(dp(16)));
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(18f), dp(22f), dp(18f), dp(115f));
 
-        // 配色主题
-        LinearLayout themeCard = m3Card(C_SURFACE_LOW, false, false);
-        themeCard.setPadding(dp(16), dp(16), dp(16), dp(16));
-        TextView th = new TextView(this);
-        th.setText("配色主题");
-        th.setTextSize(14);
-        th.setTypeface(Typeface.DEFAULT_BOLD);
-        th.setTextColor(C_ON_SURFACE);
-        themeCard.addView(th);
-        themeNameTxt = new TextView(this);
-        themeNameTxt.setTextSize(12);
-        themeNameTxt.setTextColor(C_ON_SURFACE_VARIANT);
-        themeNameTxt.setPadding(0, dp(2), 0, dp(14));
-        themeCard.addView(themeNameTxt);
-        HorizontalScrollView hs = new HorizontalScrollView(this);
-        hs.setHorizontalScrollBarEnabled(false);
-        LinearLayout dots = new LinearLayout(this);
-        dots.setOrientation(LinearLayout.HORIZONTAL);
-        final String[] ids = new String[]{"monet", "baseline", "blue", "green", "rose"};
-        for (String id : ids) {
-            dots.addView(themeDot(id));
-        }
-        hs.addView(dots, new HorizontalScrollView.LayoutParams(-2, -1));
-        themeCard.addView(hs);
-        root.addView(themeCard);
+        TextView topTitle = label("设置", 20f, C_ON_SURFACE, true);
+        topTitle.setGravity(Gravity.CENTER);
+        topTitle.setPadding(0, dp(6f), 0, dp(18f));
+        col.addView(topTitle, new LinearLayout.LayoutParams(-1, -2));
 
-        root.addView(gap(dp(8)));
+        // Section 1: Frame Rate
+        TextView secFps = label("渲染节拍与刷新率", 13.5f, C_ON_SURFACE_VARIANT, true);
+        secFps.setPadding(dp(4f), 0, dp(4f), dp(8f));
+        col.addView(secFps);
 
-        // 修复干预
-        LinearLayout cardFix = m3Card(C_SURFACE_LOW, false, false);
-        final Switch swEnable = new Switch(this);
-        swEnable.setOnCheckedChangeListener(null);
-        swEnable.setChecked(ConfigStore.en);
-        swEnable.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            public void onCheckedChanged(CompoundButton b, boolean ck) {
-                ConfigStore.en = ck;
-                ConfigStore.save(SettingsActivity.this);
-                broadcastSettings();
-                refreshStatus(false);
-            }
-        });
-        tintSwitch(swEnable);
-        cardFix.addView(switchRow("修复干预", "改写丢帧决策，保持画面节奏", swEnable));
-        root.addView(cardFix);
+        LinearLayout fpsCard = glassCard();
+        fpsCard.setPadding(dp(16f), dp(16f), dp(16f), dp(16f));
 
-        root.addView(gap(dp(8)));
+        LinearLayout segRow = new LinearLayout(this);
+        segRow.setOrientation(LinearLayout.HORIZONTAL);
+        final String[] opts = {"120", "60"};
+        final String[] names = {"120 Hz 满血高刷", "60 Hz 标准节拍"};
 
-        // 渲染节奏
-        LinearLayout fpsCard = m3Card(C_SURFACE_LOW, false, false);
-        fpsCard.setPadding(dp(16), dp(16), dp(16), dp(16));
-        TextView ft = new TextView(this);
-        ft.setText("渲染节奏");
-        ft.setTextSize(14);
-        ft.setTypeface(Typeface.DEFAULT_BOLD);
-        ft.setTextColor(C_ON_SURFACE);
-        fpsCard.addView(ft);
-        TextView fd = new TextView(this);
-        fd.setText("帧间隔基准，默认 60 fps");
-        fd.setTextSize(12);
-        fd.setTextColor(C_ON_SURFACE_VARIANT);
-        fd.setPadding(0, dp(2), 0, dp(14));
-        fpsCard.addView(fd);
-        fpsCard.addView(segmented(new String[]{"60 fps", "30 fps"},
-                "60".equals(ConfigStore.fps) ? 0 : 1,
-                new SegListener() {
-                    public void onPick(int idx) {
-                        ConfigStore.fps = idx == 1 ? "30" : "60";
-                        ConfigStore.save(SettingsActivity.this);
-                        broadcastSettings();
-                    }
-                }));
-        root.addView(fpsCard);
+        for (int i = 0; i < opts.length; i++) {
+            final String val = opts[i];
+            boolean sel = val.equals(ConfigStore.fps);
+            TextView btn = label(names[i], 14f, sel ? 0xFFFFFFFF : C_ON_SURFACE_VARIANT, sel);
+            btn.setGravity(Gravity.CENTER);
+            btn.setPadding(0, dp(12f), 0, dp(12f));
+            btn.setBackground(sel
+                    ? createWaterDropLensDrawable(dp(16f), false)
+                    : roundedStroke(C_SURFACE_HIGH, C_CARD_BORDER, dp(16f), dp(1f)));
 
-        root.addView(gap(dp(8)));
-
-        // 详细日志
-        LinearLayout logCard = m3Card(C_SURFACE_LOW, false, false);
-        final Switch swVerbose = new Switch(this);
-        swVerbose.setOnCheckedChangeListener(null);
-        swVerbose.setChecked(ConfigStore.vb);
-        swVerbose.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            public void onCheckedChanged(CompoundButton b, boolean ck) {
-                ConfigStore.vb = ck;
-                ConfigStore.save(SettingsActivity.this);
-                broadcastSettings();
-            }
-        });
-        tintSwitch(swVerbose);
-        logCard.addView(switchRow("详细日志", "写入 logcat，排查时开启", swVerbose));
-        root.addView(logCard);
-
-        root.addView(gap(dp(16)));
-
-        // 说明（body small，非卡片）
-        TextView nt = new TextView(this);
-        nt.setTextSize(12);
-        nt.setTextColor(C_ON_SURFACE_VARIANT);
-        nt.setLineSpacing(0, 1.4f);
-        nt.setPadding(dp(4), 0, dp(4), 0);
-        nt.setText("生效条件：root + LSPosed（Zygisk），作用范围选择 Google 相册。\n"
-                + "修改设置后，相册重新开始播放即生效，无需重启相册。");
-        root.addView(nt);
-
-        return scroll;
-    }
-
-    private interface SegListener {
-        void onPick(int idx);
-    }
-
-    private View segmented(final String[] labels, int sel, final SegListener cb) {
-        final FrameLayout wrap = new FrameLayout(this);
-        wrap.setBackground(roundedStroke(C_OUTLINE, dp(20), 1));
-        wrap.setPadding(dp(4), dp(4), dp(4), dp(4));
-
-        final LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        for (int i = 0; i < labels.length; i++) {
-            final int idx = i;
-            final TextView tv = new TextView(this);
-            tv.setText(labels[i]);
-            tv.setTextSize(14);
-            tv.setTypeface(Typeface.DEFAULT_BOLD);
-            tv.setGravity(Gravity.CENTER);
-            tv.setHeight(dp(32));
-            tv.setPadding(dp(12), 0, dp(12), 0);
-            tv.setTextColor(idx == sel ? C_ON_SECONDARY_CONTAINER : C_ON_SURFACE);
-            tv.setBackground(idx == sel ? rounded(C_SECONDARY_CONTAINER, dp(16)) : null);
-            tv.setOnClickListener(new View.OnClickListener() {
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
+            if (i > 0) lp.leftMargin = dp(10f);
+            btn.setOnClickListener(new View.OnClickListener() {
+                @Override
                 public void onClick(View v) {
-                    cb.onPick(idx);
-                    for (int j = 0; j < row.getChildCount(); j++) {
-                        TextView o = (TextView) row.getChildAt(j);
-                        boolean sel2 = j == idx;
-                        o.setTextColor(sel2 ? C_ON_SECONDARY_CONTAINER : C_ON_SURFACE);
-                        o.setBackground(sel2 ? rounded(C_SECONDARY_CONTAINER, dp(16)) : null);
-                    }
+                    ConfigStore.fps = val;
+                    ConfigStore.save(SettingsActivity.this);
+                    broadcastSettings();
+                    applyThemeAndRebuild();
                 }
             });
-            row.addView(tv, new LinearLayout.LayoutParams(0, -2, 1f));
+            segRow.addView(btn, lp);
         }
-        wrap.addView(row, new FrameLayout.LayoutParams(-1, -2));
-        return wrap;
-    }
+        fpsCard.addView(segRow);
+        col.addView(fpsCard);
+        col.addView(gap(18));
 
-    private View themeDot(final String id) {
-        LinearLayout cell = new LinearLayout(this);
-        cell.setOrientation(LinearLayout.VERTICAL);
-        cell.setGravity(Gravity.CENTER_HORIZONTAL);
-        cell.setPadding(dp(10), 0, dp(10), 0);
+        // Section 2: Theme & Monet
+        TextView secTheme = label("莫奈取色与液态玻璃主题", 13.5f, C_ON_SURFACE_VARIANT, true);
+        secTheme.setPadding(dp(4f), 0, dp(4f), dp(8f));
+        col.addView(secTheme);
 
-        final FrameLayout ring = new FrameLayout(this);
-        int color = themePrimaryOf(id);
-        final View inner = new View(this);
-        inner.setBackground(rounded(color, dp(12)));
-        FrameLayout.LayoutParams ilp = new FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER);
-        ring.addView(inner, ilp);
+        LinearLayout thCard = glassCard();
+        thCard.setPadding(dp(16f), dp(16f), dp(16f), dp(16f));
 
-        boolean sel = id.equals(ConfigStore.theme == null ? "monet" : ConfigStore.theme);
-        ring.setBackground(sel ? roundedStroke(C_PRIMARY, dp(18), dp(2)) : null);
-        cell.addView(ring, new LinearLayout.LayoutParams(dp(36), dp(36)));
-        TextView name = new TextView(this);
-        name.setText(themeNameOf(id));
-        name.setTextSize(11);
-        name.setTextColor(sel ? C_PRIMARY : C_ON_SURFACE_VARIANT);
-        name.setPadding(0, dp(6), 0, 0);
-        cell.addView(name);
+        TextView thSub = label("切换深海液态蓝、莫奈壁纸取色或 KernelSU 经典配色", 13f, C_ON_SURFACE_VARIANT, false);
+        thSub.setPadding(dp(2f), 0, dp(2f), dp(12f));
+        thCard.addView(thSub);
 
-        cell.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                if (id.equals(ConfigStore.theme)) return;
-                ConfigStore.theme = id;
-                ConfigStore.save(SettingsActivity.this);
-                recreate();
-            }
-        });
-        return cell;
-    }
-
-    private int themePrimaryOf(String id) {
-        boolean n = night;
-        if ("blue".equals(id)) return n ? 0xFFACC7FF : 0xFF3B5BA9;
-        if ("green".equals(id)) return n ? 0xFF9CD67D : 0xFF386A20;
-        if ("rose".equals(id)) return n ? 0xFFFFB1C8 : 0xFF9C254D;
-        if ("baseline".equals(id)) return n ? 0xFFD0BCFF : 0xFF6750A4;
-        return C_PRIMARY; // monet
-    }
-
-    private String themeNameOf(String id) {
-        if ("baseline".equals(id)) return "经典紫";
-        if ("blue".equals(id)) return "海岸蓝";
-        if ("green".equals(id)) return "苔原绿";
-        if ("rose".equals(id)) return "玫瑰粉";
-        return "莫奈动态";
-    }
-
-    // ---- navigation bar (M3) ----
-    private View buildNavBar() {
-        FrameLayout wrap = new FrameLayout(this);
-        wrap.setBackgroundColor(C_SURFACE_CONTAINER);
-        wrap.setPadding(dp(8), dp(12), dp(8), dp(12));
-
-        dockPill = new View(this);
-        dockPill.setBackground(rounded(C_SECONDARY_CONTAINER, dp(16)));
-        FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(dp(64), dp(32), Gravity.TOP | Gravity.LEFT);
-        plp.topMargin = dp(2);
-        wrap.addView(dockPill, plp);
-
+        HorizontalScrollView hsv = new HorizontalScrollView(this);
+        hsv.setHorizontalScrollBarEnabled(false);
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        wrap.addView(row, new FrameLayout.LayoutParams(-1, -1));
 
-        addTab(row, "\u2302", "主页", 0);
-        addTab(row, "\u2699", "设置", 1);
+        final String[] tKeys = {"ocean", "monet", "purple", "moss", "rose"};
+        final String[] tNames = {"深海液态蓝", "莫奈壁纸", "KernelSU 紫", "翡翠森林", "绯红落日"};
+        final int[] tDots = {0xFF47B8FF, 0xFFD0BCFF, 0xFFEAB5ED, 0xFF7CE89A, 0xFFFFB1C8};
 
-        wrap.post(new Runnable() {
-            public void run() { movePill(0, false); }
-        });
-        return wrap;
+        for (int i = 0; i < tKeys.length; i++) {
+            final String k = tKeys[i];
+            boolean act = k.equals(ConfigStore.theme);
+
+            LinearLayout chip = new LinearLayout(this);
+            chip.setOrientation(LinearLayout.HORIZONTAL);
+            chip.setGravity(Gravity.CENTER_VERTICAL);
+            chip.setPadding(dp(14f), dp(10f), dp(16f), dp(10f));
+            chip.setBackground(act
+                    ? createWaterDropLensDrawable(dp(16f), false)
+                    : roundedStroke(C_SURFACE_HIGH, C_CARD_BORDER, dp(16f), dp(1f)));
+
+            View dot = new View(this);
+            dot.setBackground(rounded(tDots[i], dp(7f)));
+            chip.addView(dot, new LinearLayout.LayoutParams(dp(14f), dp(14f)));
+
+            TextView tv = label(tNames[i], 13f, act ? 0xFFFFFFFF : C_ON_SURFACE, act);
+            LinearLayout.LayoutParams tvLp = new LinearLayout.LayoutParams(-2, -2);
+            tvLp.leftMargin = dp(8f);
+            chip.addView(tv, tvLp);
+
+            LinearLayout.LayoutParams cLp = new LinearLayout.LayoutParams(-2, -2);
+            if (i > 0) cLp.leftMargin = dp(10f);
+            chip.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    ConfigStore.theme = k;
+                    ConfigStore.save(SettingsActivity.this);
+                    applyThemeAndRebuild();
+                }
+            });
+            row.addView(chip, cLp);
+        }
+        hsv.addView(row);
+        thCard.addView(hsv);
+        col.addView(thCard);
+        col.addView(gap(18));
+
+        // Section 3: Diagnostics
+        TextView secDiag = label("调试与诊断", 13.5f, C_ON_SURFACE_VARIANT, true);
+        secDiag.setPadding(dp(4f), 0, dp(4f), dp(8f));
+        col.addView(secDiag);
+
+        col.addView(standaloneSwitchCard("详细调试日志 (Verbose)", "向 LSPosed 日志输出每次 MediaCodec 拦截参数", ConfigStore.vb, new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton b, boolean v) {
+                ConfigStore.vb = v;
+                ConfigStore.save(SettingsActivity.this);
+                broadcastSettings();
+            }
+        }));
+
+        sv.addView(col);
+        return sv;
     }
 
-    private void addTab(LinearLayout row, String icon, String label, final int idx) {
+    /**
+     * Page 3: About & Credits (Matches Video 2 "关于" Page Layout)
+     */
+    private ScrollView buildAboutPage() {
+        ScrollView sv = new ScrollView(this);
+        sv.setFillViewport(true);
+
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setGravity(Gravity.CENTER_HORIZONTAL);
+        col.setPadding(dp(18f), dp(22f), dp(18f), dp(115f));
+
+        TextView topTitle = label("关于", 20f, C_ON_SURFACE, true);
+        topTitle.setGravity(Gravity.CENTER);
+        topTitle.setPadding(0, dp(6f), 0, dp(22f));
+        col.addView(topTitle, new LinearLayout.LayoutParams(-1, -2));
+
+        // App Glass Squircle Icon
+        TextView appIcon = label("HDR", 24f, 0xFFFFFFFF, true);
+        appIcon.setGravity(Gravity.CENTER);
+        appIcon.setBackground(createWaterDropLensDrawable(dp(24f), true));
+        col.addView(appIcon, new LinearLayout.LayoutParams(dp(82f), dp(82f)));
+        col.addView(gap(12));
+
+        col.addView(label("PhotoHDRFix", 22f, C_ON_SURFACE, true));
+        TextView verTv = label("v" + getSelfVer(), 13f, C_ON_SURFACE_VARIANT, false);
+        verTv.setPadding(0, dp(2f), 0, dp(4f));
+        col.addView(verTv);
+
+        TextView descTv = label("小米 15S Pro (玄戒 O1) 杜比视界硬解直通与液态玻璃材质模块", 13f, C_ON_SURFACE_VARIANT, false);
+        descTv.setGravity(Gravity.CENTER);
+        descTv.setPadding(dp(12f), 0, dp(12f), dp(20f));
+        col.addView(descTv);
+
+        // Two-Column Environment Cards (Matches Video 2 "支持环境 / 离线与隐私")
+        LinearLayout gridRow = new LinearLayout(this);
+        gridRow.setOrientation(LinearLayout.HORIZONTAL);
+
+        LinearLayout envLeft = glassCard();
+        envLeft.setPadding(dp(16f), dp(16f), dp(16f), dp(16f));
+        TextView ic1 = label("⚙", 20f, C_PRIMARY, true);
+        envLeft.addView(ic1);
+        TextView t1 = label("支持环境", 15f, C_ON_SURFACE, true);
+        t1.setPadding(0, dp(8f), 0, dp(4f));
+        envLeft.addView(t1);
+        envLeft.addView(label("玄戒 O1 / Android 13+\nLSPosed API 100+", 12f, C_ON_SURFACE_VARIANT, false));
+
+        LinearLayout envRight = glassCard();
+        envRight.setPadding(dp(16f), dp(16f), dp(16f), dp(16f));
+        TextView ic2 = label("🛡", 20f, C_PRIMARY, true);
+        envRight.addView(ic2);
+        TextView t2 = label("离线与安全", 15f, C_ON_SURFACE, true);
+        t2.setPadding(0, dp(8f), 0, dp(4f));
+        envRight.addView(t2);
+        envRight.addView(label("纯本地硬解重定向\n零网络权限 · 零异常开销", 12f, C_ON_SURFACE_VARIANT, false));
+
+        LinearLayout.LayoutParams gLp1 = new LinearLayout.LayoutParams(0, -2, 1f);
+        gLp1.rightMargin = dp(6f);
+        LinearLayout.LayoutParams gLp2 = new LinearLayout.LayoutParams(0, -2, 1f);
+        gLp2.leftMargin = dp(6f);
+        gridRow.addView(envLeft, gLp1);
+        gridRow.addView(envRight, gLp2);
+        col.addView(gridRow, new LinearLayout.LayoutParams(-1, -2));
+        col.addView(gap(12));
+
+        // Credits Card (Kyant0 / AndroidLiquidGlass & Team)
+        LinearLayout creditCard = glassCard();
+        creditCard.setPadding(dp(18f), dp(16f), dp(18f), dp(16f));
+        creditCard.addView(label("开源致谢与光学引擎", 15.5f, C_ON_SURFACE, true));
+        TextView crSub = label("• kyant0 / AndroidLiquidGlass — 液态玻璃光学折射与弹簧物理模型\n• WA2000 & Operit AI & DeepSeek & Gemini — 联合逆向与架构重构",
+                12.5f, C_ON_SURFACE_VARIANT, false);
+        crSub.setPadding(0, dp(6f), 0, 0);
+        creditCard.addView(crSub);
+        col.addView(creditCard, new LinearLayout.LayoutParams(-1, -2));
+
+        sv.addView(col);
+        return sv;
+    }
+
+    /**
+     * Video 2 Authentic Liquid Glass Floating Bottom Dock:
+     * - Crystal-clear outer capsule (no muddy grey!)
+     * - Water-drop active lens pill (`dockPill`) that clips and counter-translates a 1.08x magnified
+     *   refraction layer (`refractedTabsRow`), producing genuine real-time lens refraction as you drag or switch tabs!
+     */
+    private FrameLayout buildNavBar() {
+        int screenW = getScreenW();
+        int horizontalMargin = dp(20f);
+        dockInnerPad = dp(4f);
+        dockOuterWidth = screenW - (horizontalMargin * 2);
+        tabSlotWidth = (dockOuterWidth - (dockInnerPad * 2)) / 3;
+        final int innerWidth = tabSlotWidth * 3;
+        final int pillHeight = dp(60f);
+
+        final FrameLayout bar = new FrameLayout(this);
+        bar.setBackground(createCrystalDockShellDrawable(dp(34f)));
+        bar.setPadding(dockInnerPad, dockInnerPad, dockInnerPad, dockInnerPad);
+
+        // 1. Base Dimmed Tabs Layer (Unselected background tabs)
+        LinearLayout baseTabs = new LinearLayout(this);
+        baseTabs.setOrientation(LinearLayout.HORIZONTAL);
+        baseTabs.setGravity(Gravity.CENTER_VERTICAL);
+        baseTabs.addView(createNavTabView(0, "⌂", "主页", false), new LinearLayout.LayoutParams(tabSlotWidth, pillHeight));
+        baseTabs.addView(createNavTabView(1, "⚙", "设置", false), new LinearLayout.LayoutParams(tabSlotWidth, pillHeight));
+        baseTabs.addView(createNavTabView(2, "ⓘ", "关于", false), new LinearLayout.LayoutParams(tabSlotWidth, pillHeight));
+        bar.addView(baseTabs, new FrameLayout.LayoutParams(innerWidth, pillHeight));
+
+        // 2. Water-Drop Active Lens Pill with Internal Refracted/Magnified Layer!
+        dockPill = new FrameLayout(this);
+        dockPill.setBackground(createWaterDropLensDrawable(dp(30f), false));
+
+        // Inside the water-drop pill: a full-width row of bright, 1.08x magnified tabs
+        // that counter-translates by -pillX so the lens physically refracts whatever tab is underneath it!
+        refractedTabsRow = new LinearLayout(this);
+        refractedTabsRow.setOrientation(LinearLayout.HORIZONTAL);
+        refractedTabsRow.setGravity(Gravity.CENTER_VERTICAL);
+        refractedTabsRow.addView(createNavTabView(0, "⌂", "主页", true), new LinearLayout.LayoutParams(tabSlotWidth, pillHeight));
+        refractedTabsRow.addView(createNavTabView(1, "⚙", "设置", true), new LinearLayout.LayoutParams(tabSlotWidth, pillHeight));
+        refractedTabsRow.addView(createNavTabView(2, "ⓘ", "关于", true), new LinearLayout.LayoutParams(tabSlotWidth, pillHeight));
+        refractedTabsRow.setScaleX(1.07f);
+        refractedTabsRow.setScaleY(1.07f);
+
+        dockPill.addView(refractedTabsRow, new FrameLayout.LayoutParams(innerWidth, pillHeight));
+
+        FrameLayout.LayoutParams pillLp = new FrameLayout.LayoutParams(
+                tabSlotWidth, pillHeight, Gravity.CENTER_VERTICAL | Gravity.LEFT);
+        bar.addView(dockPill, pillLp);
+
+        // 3. Unified Gesture Layer on Dock: Supports smooth horizontal dragging & tap with water-drop bulge!
+        bar.setOnTouchListener(new View.OnTouchListener() {
+            private float downX;
+            private float startPillX;
+            private boolean isDragging;
+
+            @Override
+            public boolean onTouch(View v, MotionEvent ev) {
+                int act = ev.getActionMasked();
+                float x = ev.getX() - dockInnerPad;
+
+                if (act == MotionEvent.ACTION_DOWN) {
+                    downX = x;
+                    startPillX = currentPillX;
+                    isDragging = false;
+                    // Water-drop lens swell on touch
+                    dockPill.setBackground(createWaterDropLensDrawable(dp(30f), true));
+                    dockPill.animate().scaleX(1.10f).scaleY(1.06f).setDuration(140L).setInterpolator(I_EMPHASIZED).start();
+                    return true;
+                } else if (act == MotionEvent.ACTION_MOVE) {
+                    float dx = x - downX;
+                    if (Math.abs(dx) > dp(6f)) {
+                        isDragging = true;
+                    }
+                    if (isDragging) {
+                        float maxTx = tabSlotWidth * 2f;
+                        float newX = Math.max(0f, Math.min(maxTx, startPillX + dx));
+                        setLensPosition(newX);
+                    }
+                    return true;
+                } else if (act == MotionEvent.ACTION_UP || act == MotionEvent.ACTION_CANCEL) {
+                    dockPill.setBackground(createWaterDropLensDrawable(dp(30f), false));
+                    dockPill.animate().scaleX(1f).scaleY(1f).setDuration(340L).setInterpolator(I_LIQUID_SPRING).start();
+
+                    int targetIdx;
+                    if (isDragging) {
+                        targetIdx = Math.round(currentPillX / tabSlotWidth);
+                    } else {
+                        targetIdx = (int) (x / tabSlotWidth);
+                    }
+                    targetIdx = Math.max(0, Math.min(2, targetIdx));
+                    showPage(targetIdx, true);
+                    return true;
+                }
+                return false;
+            }
+        });
+
+        return bar;
+    }
+
+    /**
+     * Synchronizes the water-drop pill position AND counter-scrolls the inner magnified refraction layer
+     */
+    private void setLensPosition(float pillX) {
+        currentPillX = pillX;
+        dockPill.setTranslationX(pillX);
+        if (refractedTabsRow != null) {
+            // Counter-translate inner magnified layer so icons stay anchored in world-space while the lens glides over them!
+            refractedTabsRow.setTranslationX(-pillX);
+        }
+        // Subtle base layer fade under active lens to avoid double-vision
+        float progress0 = 1f - Math.min(1f, Math.abs(pillX - 0f) / tabSlotWidth);
+        float progress1 = 1f - Math.min(1f, Math.abs(pillX - tabSlotWidth) / tabSlotWidth);
+        float progress2 = 1f - Math.min(1f, Math.abs(pillX - tabSlotWidth * 2f) / tabSlotWidth);
+        if (icHome != null) {
+            icHome.setAlpha(1f - progress0 * 0.85f);
+            lblHome.setAlpha(1f - progress0 * 0.85f);
+        }
+        if (icSettings != null) {
+            icSettings.setAlpha(1f - progress1 * 0.85f);
+            lblSettings.setAlpha(1f - progress1 * 0.85f);
+        }
+        if (icAbout != null) {
+            icAbout.setAlpha(1f - progress2 * 0.85f);
+            lblAbout.setAlpha(1f - progress2 * 0.85f);
+        }
+    }
+
+    private LinearLayout createNavTabView(int idx, String iconStr, String textStr, boolean isRefractedLensLayer) {
         LinearLayout tab = new LinearLayout(this);
         tab.setOrientation(LinearLayout.VERTICAL);
-        tab.setGravity(Gravity.CENTER_HORIZONTAL);
-        tab.setPadding(0, dp(2), 0, dp(2));
-        tab.setBackground(new RippleDrawable(ColorStateList.valueOf(C_RIPPLE), null, null));
+        tab.setGravity(Gravity.CENTER);
 
-        TextView ic = new TextView(this);
-        ic.setText(icon);
-        ic.setTextSize(24);
-        ic.setTypeface(Typeface.DEFAULT_BOLD);
-        ic.setTextColor(C_ON_SURFACE_VARIANT);
+        int color = isRefractedLensLayer ? C_PRIMARY : C_ON_SURFACE_VARIANT;
+        TextView ic = label(iconStr, isRefractedLensLayer ? 21f : 19.5f, color, true);
         ic.setGravity(Gravity.CENTER);
-        tab.addView(ic);
 
-        TextView lb = new TextView(this);
-        lb.setText(label);
-        lb.setTextSize(12);
-        lb.setTextColor(C_ON_SURFACE_VARIANT);
+        TextView lb = label(textStr, isRefractedLensLayer ? 12.5f : 11.5f, color, isRefractedLensLayer);
         lb.setGravity(Gravity.CENTER);
-        lb.setPadding(0, dp(2), 0, 0);
-        tab.addView(lb);
+        lb.setPadding(0, dp(2f), 0, 0);
 
-        if (idx == 0) {
-            icHome = ic;
-            lblHome = lb;
-        } else {
-            icSettings = ic;
-            lblSettings = lb;
-        }
-
-        tab.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { showPage(idx, true); }
-        });
-        row.addView(tab, new LinearLayout.LayoutParams(0, -2, 1f));
-    }
-
-    private void movePill(int idx, boolean animate) {
-        float cell = (getScreenW() - dp(16)) / 2f;
-        float cx = cell * idx + (cell - dp(64)) / 2f;
-        if (animate) {
-            dockPill.animate().translationX(cx).setDuration(300).setInterpolator(I_EMPHASIZED).start();
-        } else {
-            dockPill.setTranslationX(cx);
-        }
-        boolean hi = idx == 0;
-        lblHome.setTextColor(hi ? C_ON_SURFACE : C_ON_SURFACE_VARIANT);
-        icHome.setTextColor(hi ? C_ON_SECONDARY_CONTAINER : C_ON_SURFACE_VARIANT);
-        lblSettings.setTextColor(hi ? C_ON_SURFACE_VARIANT : C_ON_SURFACE);
-        icSettings.setTextColor(hi ? C_ON_SURFACE_VARIANT : C_ON_SECONDARY_CONTAINER);
-    }
-
-    private void showPage(int idx, boolean animate) {
-        boolean home = idx == 0;
-        ScrollView in = home ? homePage : settingsPage;
-        ScrollView out = home ? settingsPage : homePage;
-        out.setVisibility(View.GONE);
-        in.setVisibility(View.VISIBLE);
-        movePill(idx, animate);
-        if (animate) {
-            // M3：进场 = emphasized decelerate 400ms
-            in.setAlpha(0f);
-            in.setTranslationY(dp(24));
-            in.animate().alpha(1f).translationY(0f)
-                    .setDuration(400).setInterpolator(I_DECEL).start();
-        }
-        if (home) refreshStatus(false);
-    }
-
-    // ---- status ----
-    private void sendRefresh() {
-        dot.animate().scaleX(1.35f).scaleY(1.35f).setDuration(120)
-                .setInterpolator(I_EMPHASIZED)
-                .withEndAction(new Runnable() {
-                    public void run() {
-                        dot.animate().scaleX(1f).scaleY(1f).setDuration(240)
-                                .setInterpolator(I_DECEL).start();
-                    }
-                }).start();
-        broadcastSettings();
-        refreshStatus(false);
-    }
-
-    private void refreshStatus(boolean got) {
-        String st = ConfigStore.status;
-        long t = ConfigStore.statusTime;
-        long ageMin = (System.currentTimeMillis() - t) / 60000;
-        boolean fresh = st != null && ageMin < 60;
-        boolean enabled = ConfigStore.en;
-        String when = "";
-        if (t > 0) {
-            try {
-                when = new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date(t));
-            } catch (Throwable ignored) {
+        if (!isRefractedLensLayer) {
+            if (idx == 0) {
+                icHome = ic;
+                lblHome = lb;
+            } else if (idx == 1) {
+                icSettings = ic;
+                lblSettings = lb;
+            } else {
+                icAbout = ic;
+                lblAbout = lb;
             }
         }
-        if (fresh) {
-            dot.setBackground(rounded(enabled ? C_PRIMARY : C_OUTLINE, dp(6)));
-            bigTitle.setText(enabled ? "已注入 · 运行中" : "已注入 · 已停用");
-            bigSub.setText(enabled ? "修复干预已启用，正在保护相册播放节奏"
-                    : "模块已注入，干预当前处于关闭状态");
-            bigMeta.setText("最近同步 " + when);
+
+        tab.addView(ic, new LinearLayout.LayoutParams(-1, -2));
+        tab.addView(lb, new LinearLayout.LayoutParams(-1, -2));
+        return tab;
+    }
+
+    private ValueAnimator pillAnimator;
+
+    private void showPage(int idx, boolean anim) {
+        curPage = idx;
+        ScrollView[] pages = new ScrollView[]{homePage, settingsPage, aboutPage};
+        for (int i = 0; i < pages.length; i++) {
+            ScrollView p = pages[i];
+            if (i == idx) {
+                if (p.getVisibility() != View.VISIBLE) {
+                    p.setVisibility(View.VISIBLE);
+                    if (anim) {
+                        p.setAlpha(0f);
+                        p.setTranslationY(dp(8f));
+                        p.animate().alpha(1f).translationY(0f).setDuration(240L).setInterpolator(I_EMPHASIZED).start();
+                    } else {
+                        p.setAlpha(1f);
+                        p.setTranslationY(0f);
+                    }
+                }
+            } else {
+                p.setVisibility(View.GONE);
+            }
+        }
+        animateLensToTab(idx, anim);
+    }
+
+    private void animateLensToTab(int idx, boolean anim) {
+        final float targetX = idx * tabSlotWidth;
+        if (pillAnimator != null) {
+            pillAnimator.cancel();
+        }
+        if (!anim) {
+            setLensPosition(targetX);
+            return;
+        }
+
+        final float startX = currentPillX;
+        pillAnimator = ValueAnimator.ofFloat(0f, 1f);
+        pillAnimator.setDuration(360L);
+        pillAnimator.setInterpolator(I_LIQUID_SPRING);
+        pillAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+            @Override
+            public void onAnimationUpdate(ValueAnimator animation) {
+                float f = ((Float) animation.getAnimatedValue()).floatValue();
+                float x = startX + (targetX - startX) * f;
+                setLensPosition(x);
+            }
+        });
+        pillAnimator.start();
+    }
+
+    private void refreshStatus() {
+        if (heroTitle == null) return;
+        if (ConfigStore.en) {
+            heroTitle.setText("模块已激活");
+            if (hostModeTag != null) hostModeTag.setText("c2.xring.hevc (" + ConfigStore.fps + "Hz)");
         } else {
-            dot.setBackground(rounded(C_ON_SURFACE_VARIANT, dp(6)));
-            bigTitle.setText("等待注入");
-            bigSub.setText("打开一次 Google 相册并播放视频后，\n返回本页即可看到实时状态");
-            bigMeta.setText(st == null ? "" : "上次同步 " + when);
-        }
-        try {
-            android.content.pm.PackageInfo pi = getPackageManager()
-                    .getPackageInfo("com.google.android.apps.photos", 0);
-            verPhotos.setText(pi.versionName + " (" + pi.versionCode + ")");
-        } catch (Throwable e) {
-            verPhotos.setText("未安装");
-        }
-        if (themeNameTxt != null) {
-            themeNameTxt.setText("当前：" + themeNameOf(ConfigStore.theme == null ? "monet" : ConfigStore.theme)
-                    + (night ? " · 深色" : " · 浅色"));
+            heroTitle.setText("模块已暂停 (点击恢复)");
+            if (hostModeTag != null) hostModeTag.setText("原生模式");
         }
     }
 
     private void broadcastSettings() {
         try {
-            boolean en = ConfigStore.en;
-            String fps = ConfigStore.fps;
-            boolean vb = ConfigStore.vb;
-            android.util.Log.i("PhotoHDRFix", "bcast en=" + en + " fps=" + fps + " vb=" + vb);
             Intent i = new Intent("com.wa2000.photohdr.SETTINGS_CHANGED");
             i.setPackage("com.google.android.apps.photos");
-            i.putExtra("en", en);
-            i.putExtra("fps", fps);
-            i.putExtra("vb", vb);
+            i.putExtra("en", ConfigStore.en);
+            i.putExtra("fix_dv", ConfigStore.fixDv);
+            i.putExtra("low_lat", ConfigStore.lowLat);
+            i.putExtra("lock_fps", ConfigStore.lockFps);
+            i.putExtra("fps", ConfigStore.fps);
+            i.putExtra("vb", ConfigStore.vb);
             sendBroadcast(i);
-        } catch (Throwable t) {
-            android.util.Log.w("PhotoHDRFix", "bcast FAIL: " + t);
-        }
+        } catch (Throwable ignored) {}
     }
 
-    // ============ helpers ============
-    /**
-     * M3 卡片。
-     * @param bgColor 填充色；0 表示 outlined（surface + outline 描边）
-     * @param outline 是否描边
-     * @param ripple  是否带按压涟漪（可点击）
-     */
-    private LinearLayout m3Card(int bgColor, boolean outline, boolean ripple) {
-        LinearLayout c = new LinearLayout(this);
-        c.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable g = rounded(bgColor == 0 ? C_SURFACE : bgColor, dp(12));
-        if (outline || bgColor == 0) g.setStroke(dp(1), C_OUTLINE);
-        if (ripple) {
-            c.setBackground(new RippleDrawable(ColorStateList.valueOf(C_RIPPLE), g, g));
-        } else {
-            c.setBackground(g);
-        }
-        return c;
+    private void applyThemeAndRebuild() {
+        int keepPage = curPage;
+        loadTheme();
+        buildUi();
+        setContentView(content);
+        applySystemBars();
+        showPage(keepPage, false);
+        refreshStatus();
     }
 
-    private LinearLayout switchRow(String t, String d, Switch sw) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(16), dp(12), dp(16), dp(12));
-        LinearLayout texts = new LinearLayout(this);
-        texts.setOrientation(LinearLayout.VERTICAL);
+    private LinearLayout glassCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackground(roundedStroke(C_CARD_FILL, C_CARD_BORDER, dp(22f), dp(1f)));
+        return card;
+    }
+
+    private LinearLayout standaloneSwitchCard(String title, String sub, boolean checked, final CompoundButton.OnCheckedChangeListener l) {
+        LinearLayout card = glassCard();
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(dp(18f), dp(15f), dp(18f), dp(15f));
+
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.addView(label(title, 15.5f, C_ON_SURFACE, true));
+        TextView tvSub = label(sub, 12.5f, C_ON_SURFACE_VARIANT, false);
+        tvSub.setPadding(0, dp(3f), 0, 0);
+        col.addView(tvSub);
+
+        LinearLayout.LayoutParams colLp = new LinearLayout.LayoutParams(0, -2, 1f);
+        colLp.rightMargin = dp(12f);
+        card.addView(col, colLp);
+
+        final Switch sw = new Switch(this);
+        sw.setChecked(checked);
+        tintSwitch(sw, checked);
+        sw.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton b, boolean v) {
+                tintSwitch(sw, v);
+                if (l != null) l.onCheckedChanged(b, v);
+            }
+        });
+        card.addView(sw);
+        return card;
+    }
+
+    private LinearLayout numberedGuideCard(String numStr, String guideText) {
+        LinearLayout card = glassCard();
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(dp(16f), dp(14f), dp(16f), dp(14f));
+
+        TextView badge = label(numStr, 13f, C_PRIMARY, true);
+        badge.setGravity(Gravity.CENTER);
+        badge.setBackground(roundedStroke(alpha(C_PRIMARY, 38), alpha(C_PRIMARY, 90), dp(14f), dp(1f)));
+        card.addView(badge, new LinearLayout.LayoutParams(dp(28f), dp(28f)));
+
+        TextView txt = label(guideText, 13.5f, C_ON_SURFACE, false);
+        LinearLayout.LayoutParams txtLp = new LinearLayout.LayoutParams(0, -2, 1f);
+        txtLp.leftMargin = dp(14f);
+        card.addView(txt, txtLp);
+
+        return card;
+    }
+
+    private void tintSwitch(Switch sw, boolean checked) {
+        try {
+            sw.setThumbTintList(ColorStateList.valueOf(checked ? 0xFFFFFFFF : C_ON_SURFACE_VARIANT));
+            sw.setTrackTintList(ColorStateList.valueOf(checked ? 0xFF34C759 : C_SURFACE_HIGH)); // iOS / Video 2 vibrant green switch track
+        } catch (Throwable ignored) {}
+    }
+
+    private TextView label(String text, float sizeSp, int color, boolean bold) {
         TextView tv = new TextView(this);
-        tv.setText(t);
-        tv.setTextSize(16);
-        tv.setTextColor(C_ON_SURFACE);
-        tv.setTypeface(Typeface.DEFAULT_BOLD);
-        texts.addView(tv);
-        TextView dv = new TextView(this);
-        dv.setText(d);
-        dv.setTextSize(14);
-        dv.setTextColor(C_ON_SURFACE_VARIANT);
-        texts.addView(dv);
-        row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1f));
-        row.addView(sw);
-        return row;
+        tv.setText(text);
+        tv.setTextSize(sizeSp);
+        tv.setTextColor(color);
+        tv.setTypeface(null, bold ? 1 : 0);
+        return tv;
     }
 
-    private void tintSwitch(Switch sw) {
-        int[][] states = new int[][]{
-                new int[]{android.R.attr.state_checked},
-                new int[]{}
-        };
-        int[] thumb = new int[]{C_ON_PRIMARY, C_OUTLINE};
-        int[] track = new int[]{C_PRIMARY, C_SURFACE_HIGH};
-        sw.setThumbTintList(new ColorStateList(states, thumb));
-        sw.setTrackTintList(new ColorStateList(states, track));
+    private GradientDrawable rounded(int color, int radiusPx) {
+        GradientDrawable gd = new GradientDrawable();
+        gd.setColor(color);
+        gd.setCornerRadius(radiusPx);
+        return gd;
     }
 
-    private View gap(int h) {
+    private GradientDrawable roundedStroke(int fill, int stroke, int radiusPx, int strokeW) {
+        GradientDrawable gd = new GradientDrawable();
+        gd.setColor(fill);
+        gd.setCornerRadius(radiusPx);
+        gd.setStroke(strokeW, stroke);
+        return gd;
+    }
+
+    private View gap(int dpVal) {
         View v = new View(this);
-        v.setLayoutParams(new LinearLayout.LayoutParams(1, h));
+        v.setLayoutParams(new LinearLayout.LayoutParams(-1, dp(dpVal)));
         return v;
     }
 
-    private GradientDrawable rounded(int color, int radius) {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(color);
-        g.setCornerRadius(radius);
-        return g;
-    }
-
-    private GradientDrawable roundedStroke(int color, int radius, int w) {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(Color.TRANSPARENT);
-        g.setStroke(dp(w), color);
-        g.setCornerRadius(radius);
-        return g;
-    }
-
-    private int alpha(int color, float a) {
-        int aa = Math.round(255 * a);
-        if (aa > 255) aa = 255;
-        if (aa < 0) aa = 0;
-        return (aa << 24) | (color & 0xFFFFFF);
+    private int dp(float val) {
+        return Math.round(val * getResources().getDisplayMetrics().density);
     }
 
     private int getScreenW() {
         return getResources().getDisplayMetrics().widthPixels;
     }
 
-    private int dp(float v) {
-        return Math.round(getResources().getDisplayMetrics().density * v);
+    private String getSelfVer() {
+        try {
+            PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
+            return pi.versionName + " (build " + pi.versionCode + ")";
+        } catch (Throwable t) {
+            return "2.3.0 (build 23)";
+        }
+    }
+
+    private String getPhotosVer() {
+        try {
+            PackageInfo pi = getPackageManager().getPackageInfo("com.google.android.apps.photos", 0);
+            return pi.versionName;
+        } catch (Throwable t) {
+            return "已安装";
+        }
+    }
+
+    private static int alpha(int color, int a) {
+        return (color & 0x00FFFFFF) | ((a & 0xFF) << 24);
+    }
+
+    private static int blend(int c1, int c2, float ratio) {
+        float inv = 1f - ratio;
+        int r = Math.round(((c1 >> 16) & 0xFF) * inv + ((c2 >> 16) & 0xFF) * ratio);
+        int g = Math.round(((c1 >> 8) & 0xFF) * inv + ((c2 >> 8) & 0xFF) * ratio);
+        int b = Math.round((c1 & 0xFF) * inv + (c2 & 0xFF) * ratio);
+        return 0xFF000000 | ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF);
     }
 }
