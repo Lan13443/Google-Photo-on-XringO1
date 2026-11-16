@@ -95,4 +95,5 @@ Xposed / LSPosed 模块，作用于 `com.google.android.apps.photos` 与 `com.mi
 ## 致谢
 
 - LSPosed / Xposed 框架
-- Operit AI、DeepSeek 等排障协作工具
+- Operit AI、DeepSeek、Gemini等排障协作工具
+
