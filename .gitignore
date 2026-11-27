@@ -3,9 +3,12 @@
 *.keystore
 release/keystore.properties
 
-# 构建产物
+# 构建与发布产物
 *.apk
 *.apk.idsig
+*.o
+*.so
+*.zip
 build/
 .gradle/
 local.properties

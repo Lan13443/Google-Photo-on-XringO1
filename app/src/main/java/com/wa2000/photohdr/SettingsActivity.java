@@ -1029,7 +1029,7 @@ public class SettingsActivity extends Activity {
             PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
             return pi.versionName + " (build " + pi.versionCode + ")";
         } catch (Throwable t) {
-            return "2.3.0 (build 23)";
+            return "2.4.2 (build 27)";
         }
     }
 

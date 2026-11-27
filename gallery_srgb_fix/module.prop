@@ -1,0 +1,6 @@
+id=gallery_srgb_fix
+name=GallerySrgbFix
+version=v1.0.0
+versionCode=1
+author=WA2000
+description=Clamp MIUI Gallery DISPLAY_P3 UI to sRGB while keeping HDR video
