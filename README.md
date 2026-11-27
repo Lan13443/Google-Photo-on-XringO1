@@ -1,6 +1,6 @@
 # PhotoHDRFix
 
-解决玄戒 O1 平台（`dijun` / `O1_asic`）小米机型在澎湃 OS（HyperOS）生动模式下，**Google 相册、小米系统相册、微信** 在 HDR/广色域场景出现全局色域切换（发黄、偏色）或全屏 HDR 异常的问题。
+解决玄戒 O1 平台（`dijun` / `O1_asic`）小米机型在澎湃 OS（HyperOS）生动模式下，**Google 相册、小米系统相册、微信** 在 HDR/广色域场景出现全局色域切换（发黄、偏色）或全屏 HDR 异常的问题。（澎湃4.0.0.19beta）
 
 包含两部分（均严格运行在 App 层，不碰系统分区与 `system_server`）：
 
